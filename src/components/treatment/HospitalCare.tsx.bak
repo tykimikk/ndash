@@ -1,0 +1,357 @@
+import { useState, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
+// Import AG Grid with its modules 
+import { AgGridReact } from 'ag-grid-react';
+import 'ag-grid-community/styles/ag-grid.css';
+import 'ag-grid-community/styles/ag-theme-alpine.css';
+import type { HospitalCareTreatment as OriginalHospitalCareTreatment } from '@/types/patient';
+import { saveHospitalCare, deleteHospitalCare } from '@/lib/supabase';
+import type { ColDef, GetRowIdParams } from 'ag-grid-community';
+
+// Define new structures for treatments and links
+export interface HospitalCareTreatment extends OriginalHospitalCareTreatment {
+  id: string;
+  unit?: string;
+  repetitions_per_day?: string;
+  treatment_type?: 'antibiotic' | 'medical_act' | 'analgesic' | 'note' | string;
+  flag?: 'normal' | 'precaution' | 'high_surveillance' | 'addictive';
+}
+
+interface HospitalCareProps {
+  patientId: string;
+  treatments: HospitalCareTreatment[];
+  onUpdate: () => void;
+}
+
+type NewTreatment = Omit<HospitalCareTreatment, 'id' | 'created_at' | 'updated_at'> & { 
+  patient_id: string; 
+  quantity: string;
+};
+
+interface FlagCellRendererParams {
+  value: string;
+  data: HospitalCareTreatment;
+}
+
+// Flag component for cell renderer
+const FlagCellRenderer = (props: FlagCellRendererParams) => {
+  const { data } = props;
+  const flagType = data.flag || 'normal';
+  
+  let flagEmoji = '🟩'; // Default: normal
+  let flagTitle = 'Normal';
+  
+  if (flagType === 'precaution') {
+    flagEmoji = '🟨';
+    flagTitle = 'Precaution needed';
+  } else if (flagType === 'high_surveillance') {
+    flagEmoji = '🟥';
+    flagTitle = 'High surveillance';
+  } else if (flagType === 'addictive') {
+    flagEmoji = '🟪';
+    flagTitle = 'Addictive substance';
+  }
+  
+  return (
+    <div className="relative h-full w-full">
+      <div className="absolute bottom-0 right-0" title={flagTitle}>
+        {flagEmoji}
+      </div>
+      <div className="pr-6">{props.value}</div>
+    </div>
+  );
+};
+
+// Improve type definition
+interface ButtonCellRendererParams {
+  value: string;
+}
+
+// Delete button cell renderer
+const DeleteButtonCellRenderer = ({ value }: ButtonCellRendererParams) => {
+  const handleClick = () => {
+    if (confirm('Are you sure you want to delete this treatment?')) {
+      deleteHospitalCare(value)
+        .then(() => {
+          toast.success('Treatment deleted successfully');
+          // Trigger a reload - the component will need to be refreshed by parent
+          window.dispatchEvent(new CustomEvent('hospital-care-update'));
+        })
+        .catch(error => {
+          console.error('Error deleting treatment:', error);
+          toast.error('Failed to delete treatment');
+        });
+    }
+  };
+
+  return (
+    <button
+      onClick={handleClick}
+      className="text-red-500 hover:text-red-700"
+    >
+      Delete
+    </button>
+  );
+};
+
+export function HospitalCareComponent({
+  patientId,
+  treatments = [],
+  onUpdate
+}: HospitalCareProps) {
+  const [isLoading, setIsLoading] = useState(false);
+  const [newTreatment, setNewTreatment] = useState<NewTreatment>({
+    patient_id: patientId,
+    treatment: '',
+    date: new Date().toISOString().split('T')[0] + 'T00:00',
+    dosage: '',
+    quantity: '',
+    unit: '',
+    repetitions_per_day: '',
+    treatment_type: '',
+    notes: '',
+    flag: 'normal'
+  });
+  
+  // Grid ref for accessing grid API
+  const gridRef = useRef(null);
+
+  // Add event listener for custom delete event
+  useEffect(() => {
+    const handleUpdate = () => {
+      onUpdate();
+    };
+    window.addEventListener('hospital-care-update', handleUpdate);
+    return () => {
+      window.removeEventListener('hospital-care-update', handleUpdate);
+    };
+  }, [onUpdate]);
+
+  // Add a new treatment
+  const handleAddTreatment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (!newTreatment.treatment || !newTreatment.date || !newTreatment.dosage || 
+        !newTreatment.unit || !newTreatment.repetitions_per_day || !newTreatment.treatment_type) {
+      toast.error('Please fill in all required fields for the treatment.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const treatmentToSave: Omit<OriginalHospitalCareTreatment, 'id' | 'created_at' | 'updated_at'> = {
+        patient_id: newTreatment.patient_id,
+        treatment: newTreatment.treatment,
+        date: newTreatment.date,
+        dosage: newTreatment.dosage,
+        quantity: newTreatment.quantity,
+        notes: newTreatment.notes,
+      };
+
+      await saveHospitalCare(treatmentToSave);
+      toast.success('Treatment added successfully');
+      
+      // Reset form
+      setNewTreatment({
+        patient_id: patientId,
+        treatment: '',
+        date: new Date().toISOString().split('T')[0] + 'T00:00',
+        dosage: '',
+        quantity: '',
+        unit: '',
+        repetitions_per_day: '',
+        treatment_type: '',
+        notes: '',
+        flag: 'normal'
+      });
+      
+      // Refresh data
+      onUpdate();
+    } catch (error) {
+      console.error('Error saving treatment:', error);
+      toast.error('Failed to add treatment');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // AG Grid column definitions with correct typing
+  const columnDefs: ColDef[] = [
+    { 
+      headerName: 'Treatment/Procedure', 
+      field: 'treatment', 
+      cellRenderer: FlagCellRenderer,
+      flex: 2,
+    },
+    { headerName: 'Dosage', field: 'dosage', flex: 1 },
+    { headerName: 'Quantity', field: 'quantity', flex: 1 },
+    { headerName: 'Unit', field: 'unit', flex: 1 },
+    { headerName: 'Repetitions/Day', field: 'repetitions_per_day', flex: 1 },
+    { 
+      headerName: 'Start Date', 
+      field: 'date', 
+      flex: 1,
+      valueFormatter: (params: { value: string | undefined }) => {
+        if (!params.value) return '';
+        return new Date(params.value).toLocaleString();
+      }
+    },
+    { headerName: 'Type', field: 'treatment_type', flex: 1 },
+    { headerName: 'Note', field: 'notes', flex: 1 },
+    {
+      headerName: 'Actions',
+      field: 'id',
+      width: 100,
+      cellRenderer: DeleteButtonCellRenderer
+    },
+  ];
+
+  // Grid default column definition
+  const defaultColDef = {
+    sortable: true,
+    filter: true,
+    resizable: true
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-between items-center">
+        <h3 className="text-lg font-semibold">In-Hospital Care</h3>
+      </div>
+      
+      {/* AG Grid Table - simple container without ReactFlow overlay */}
+      <div className="h-[500px]">
+        <div className="ag-theme-alpine w-full h-full dark:ag-theme-alpine-dark">
+          <AgGridReact
+            ref={gridRef}
+            rowData={treatments}
+            columnDefs={columnDefs}
+            defaultColDef={defaultColDef}
+            animateRows={true}
+            getRowId={(params: GetRowIdParams) => params.data.id}
+            rowHeight={48}
+            headerHeight={40}
+            suppressRowHoverHighlight={false}
+            rowSelection="single"
+          />
+        </div>
+      </div>
+      
+      {/* Form for adding new treatment */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b">
+              <th className="py-2 px-4 text-left">Treatment/Procedure</th>
+              <th className="py-2 px-4 text-left">Dosage</th>
+              <th className="py-2 px-4 text-left">Quantity</th>
+              <th className="py-2 px-4 text-left">Unit</th>
+              <th className="py-2 px-4 text-left">Repetitions/Day</th>
+              <th className="py-2 px-4 text-left">Start Date</th>
+              <th className="py-2 px-4 text-left">Type</th>
+              <th className="py-2 px-4 text-left">Note</th>
+              <th className="py-2 px-4 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b bg-[var(--muted)]">
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.treatment}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, treatment: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., Paracetamol"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.dosage}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, dosage: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., 500"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.quantity} 
+                  onChange={(e) => setNewTreatment({ ...newTreatment, quantity: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., 10 tablets, 1 vial"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.unit}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, unit: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., mg, mL, pcs"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.repetitions_per_day}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, repetitions_per_day: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="e.g., 3, BID"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="datetime-local"
+                  value={newTreatment.date}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, date: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 relative">
+                <select
+                  value={newTreatment.treatment_type}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, treatment_type: e.target.value as HospitalCareTreatment['treatment_type'] })}
+                  className="w-full p-2 border rounded-md"
+                  disabled={isLoading}
+                >
+                  <option value="">Select Type</option>
+                  <option value="antibiotic">Antibiotic</option>
+                  <option value="medical_act">Medical Act</option>
+                  <option value="analgesic">Analgesic</option>
+                  <option value="note">Note</option>
+                  <option value="other">Other</option>
+                </select>
+              </td>
+              <td className="py-2 px-4 relative">
+                <input
+                  type="text"
+                  value={newTreatment.notes || ''}
+                  onChange={(e) => setNewTreatment({ ...newTreatment, notes: e.target.value })}
+                  className="w-full p-2 border rounded-md"
+                  placeholder="Additional notes"
+                  disabled={isLoading}
+                />
+              </td>
+              <td className="py-2 px-4 text-right">
+                <button
+                  onClick={handleAddTreatment}
+                  className="text-sm px-3 py-1 bg-[var(--primary)] text-[var(--primary-foreground)] rounded hover:opacity-90"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Adding...' : 'Add'}
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+} 
