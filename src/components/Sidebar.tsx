@@ -11,7 +11,6 @@ export function Sidebar() {
   const router = useRouter();
   const { user, clearRedirectFlag } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
 
   // Store collapsed state in localStorage
   useEffect(() => {
@@ -21,22 +20,6 @@ export function Sidebar() {
     }
   }, []);
 
-  // Check for mobile viewport
-  useEffect(() => {
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-    
-    // Initial check
-    checkMobile();
-    
-    // Add event listener
-    window.addEventListener('resize', checkMobile);
-    
-    // Cleanup
-    return () => window.removeEventListener('resize', checkMobile);
-  }, []);
-
   // Update localStorage when state changes
   useEffect(() => {
     localStorage.setItem('sidebar_collapsed', collapsed.toString());
@@ -44,7 +27,7 @@ export function Sidebar() {
     window.dispatchEvent(new Event('sidebar_state_changed'));
   }, [collapsed]);
 
-  if (!user || isMobile) return null;
+  if (!user) return null;
   
   // Handle navigation without triggering auth redirects
   const handleNavigation = (e: MouseEvent<HTMLAnchorElement>, path: string) => {

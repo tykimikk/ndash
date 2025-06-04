@@ -26,6 +26,7 @@ export default function PatientDetailPage({
   const [notes, setNotes] = useState<PatientNote[]>([]);
   const [selectedNote, setSelectedNote] = useState<string | null>(null);
   const [noteContent, setNoteContent] = useState<string>('');
+  const [quickNoteContent, setQuickNoteContent] = useState<string>('');
   const [isSavingNote, setIsSavingNote] = useState(false);
 
   // Imaging state
@@ -364,20 +365,19 @@ export default function PatientDetailPage({
   const handleNoteButtonClick = () => {
     setIsNoteButtonRotating(true);
     
-    // Check for existing quick note for today
+    // Check for existing quick note from today
     const today = new Date().toISOString().split('T')[0];
     const existingNote = notes.find(note => 
       note.type === 'quick' && 
-      note.date.startsWith(today)
+      new Date(note.date).toISOString().split('T')[0] === today
     );
 
     if (existingNote) {
-      // If there's an existing note for today, open it
-      setSelectedNote(existingNote.id);
-      setNoteContent(existingNote.content);
+      // If there's an existing note from today, open it
+      setQuickNoteContent(existingNote.content || '');
     } else {
-      // If no note exists for today, create a new one
-      handleAddNote('quick');
+      // If no note exists for today, clear the content for a new note
+      setQuickNoteContent('');
     }
 
     setTimeout(() => {
@@ -388,17 +388,24 @@ export default function PatientDetailPage({
 
   // Add handler for quick note save
   const handleQuickNoteSave = async () => {
-    if (!noteContent.trim()) return;
+    if (!quickNoteContent.trim()) return;
     
     try {
       setIsSavingNote(true);
       
-      if (selectedNote) {
+      // Check if we're updating an existing note or creating a new one
+      const today = new Date().toISOString().split('T')[0];
+      const existingNote = notes.find(note => 
+        note.type === 'quick' && 
+        new Date(note.date).toISOString().split('T')[0] === today
+      );
+
+      if (existingNote) {
         // Update existing note
-        await updatePatientNote(selectedNote, noteContent);
+        await updatePatientNote(existingNote.id, quickNoteContent);
         setNotes(prev => prev.map(note => 
-          note.id === selectedNote 
-            ? { ...note, content: noteContent, updated_at: new Date().toISOString() }
+          note.id === existingNote.id 
+            ? { ...note, content: quickNoteContent, updated_at: new Date().toISOString() }
             : note
         ));
       } else {
@@ -407,14 +414,14 @@ export default function PatientDetailPage({
           patient_id: unwrappedParams.id,
           type: 'quick',
           date: new Date().toISOString(),
-          content: noteContent
+          content: quickNoteContent
         };
         
         const savedNote = await savePatientNote(newNote);
         setNotes(prev => [savedNote, ...prev]);
       }
-      
-      setNoteContent('');
+
+      setQuickNoteContent('');
       setIsNoteModalOpen(false);
       toast.success('Note saved successfully');
     } catch (error) {
@@ -1060,8 +1067,8 @@ export default function PatientDetailPage({
         );
       case 'records':
         return (
-          <div className="flex flex-col md:flex-row h-full">
-            <div className="w-full md:w-64 border-r bg-[var(--muted)] p-4 flex flex-col">
+          <div className="flex flex-col md:flex-row h-full min-h-0">
+            <div className="w-full md:w-64 border-r bg-[var(--muted)] p-4 flex flex-col min-h-0">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-medium">Patient Notes</h3>
               </div>
@@ -1079,7 +1086,7 @@ export default function PatientDetailPage({
                   + Add Discharge Note
                 </button>
               </div>
-              <div className="mt-6 space-y-2 flex-1 overflow-y-auto">
+              <div className="mt-6 space-y-2 flex-1 overflow-y-auto min-h-0">
                 {notes.map(note => (
                   <div
                     key={note.id}
@@ -1091,12 +1098,12 @@ export default function PatientDetailPage({
                   </div>
                 ))}
                 {notes.length === 0 && <div className="p-3 text-sm text-[var(--muted-foreground)] text-center">No notes yet. Create one to get started.</div>}
-                  </div>
               </div>
-            <div className="flex-1 flex flex-col">
+            </div>
+            <div className="flex-1 flex flex-col min-h-0">
               {selectedNote ? (
                 <>
-                  <div className="flex-1 p-4 overflow-y-auto">
+                  <div className="flex-1 p-4 overflow-y-auto min-h-0">
                     <RichTextEditor content={noteContent} onChange={setNoteContent} placeholder="Start writing your note here..." />
                   </div>
                   <div className="border-t p-4 flex justify-end gap-4">
@@ -1183,8 +1190,8 @@ export default function PatientDetailPage({
         }
 
         return (
-          <div className="flex flex-col md:flex-row h-full">
-            <div className="w-full md:w-64 border-r border-[var(--border)] bg-[var(--muted)] p-4 flex flex-col">
+          <div className="flex flex-col md:flex-row h-full min-h-0">
+            <div className="w-full md:w-64 border-r border-[var(--border)] bg-[var(--muted)] p-4 flex flex-col min-h-0">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-medium">Imaging</h3>
               </div>
@@ -1197,7 +1204,7 @@ export default function PatientDetailPage({
                   <button onClick={() => handleAddImageClick('Other')} className="px-2 py-1 text-xs rounded-md bg-[var(--foreground)] text-[var(--background)] hover:opacity-90">Other</button>
                 </div>
               </div>
-              <div className="mt-6 space-y-2 flex-1 overflow-y-auto">
+              <div className="mt-6 space-y-2 flex-1 overflow-y-auto min-h-0">
                 <div className="font-medium mb-2">Patient Images</div>
                 {patient && patient.imaging && patient.imaging.length > 0 ? (
                   patient.imaging.map((img, index) => (
@@ -1215,7 +1222,7 @@ export default function PatientDetailPage({
                 )}
               </div>
             </div>
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col min-h-0">
               {selectedImage ? (
                 <div className="flex-1 p-4 overflow-y-auto">
                   <div className="space-y-6">
@@ -1271,13 +1278,13 @@ export default function PatientDetailPage({
   }
 
   return (
-    <div className="h-screen bg-[var(--background)] text-[var(--foreground)]">
+    <div className="h-screen bg-[var(--background)] text-[var(--foreground)] flex flex-col">
       {isLoading ? (
         <div className="flex items-center justify-center h-full">
           <Loader size="lg" />
         </div>
       ) : (
-        <div className="h-full flex flex-col">
+        <div className="flex flex-col h-full">
           <div className="p-4 border-b border-[var(--border)] flex justify-between items-center flex-wrap gap-2">
             <button onClick={handleBack} className="flex items-center text-sm text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
               <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
@@ -1307,62 +1314,65 @@ export default function PatientDetailPage({
           {/* Main Tab Content Wrapper */}
           <div className={
             activeTab === 'records' || activeTab === 'imaging'
-              ? 'flex-1 h-[calc(100vh-10rem)] overflow-hidden'
-              : 'flex-1 p-4 overflow-y-auto'
+              ? 'flex-1 min-h-0 overflow-hidden'
+              : 'flex-1 overflow-y-auto'
           }>
             {renderTabContent()}
           </div>
 
-          {/* Floating Note Button */}
-          <div className="fixed bottom-6 right-6 z-50">
-            <button
-              onClick={handleNoteButtonClick}
-              className={`w-14 h-14 rounded-full bg-[var(--foreground)] text-[var(--background)] shadow-lg flex items-center justify-center transition-all duration-300 transform hover:scale-110 ${
-                isNoteButtonRotating ? 'rotate-180' : ''
-              }`}
-            >
-              <svg
-                className={`w-6 h-6 transition-transform duration-300 ${
-                  isNoteModalOpen ? 'rotate-45' : ''
+          {/* Floating Note Button - Only show on Basic Information tab */}
+          {activeTab === 'basic' && (
+            <div className="fixed bottom-6 right-6 z-50">
+              <button
+                onClick={handleNoteButtonClick}
+                className={`w-14 h-14 rounded-full bg-[var(--foreground)] text-[var(--background)] shadow-lg flex items-center justify-center transition-all duration-300 transform hover:scale-110 ${
+                  isNoteButtonRotating ? 'rotate-180' : ''
                 }`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d={isNoteModalOpen ? "M6 18L18 6M6 6l12 12" : "M12 4v16m8-8H4"}
-                />
-              </svg>
-            </button>
+                <svg
+                  className={`w-6 h-6 transition-transform duration-300 ${
+                    isNoteModalOpen ? 'rotate-45' : ''
+                  }`}
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth="2"
+                    d={isNoteModalOpen ? "M6 18L18 6M6 6l12 12" : "M12 4v16m8-8H4"}
+                  />
+                </svg>
+              </button>
 
-            {/* Floating Note Modal */}
-            {isNoteModalOpen && (
-              <div className="absolute bottom-20 right-0 w-80 bg-[var(--background)] rounded-lg shadow-xl border border-[var(--border)] transform transition-all duration-300 animate-slide-up">
-                <div className="p-4">
-                  <h3 className="text-lg font-semibold mb-4">Quick Note</h3>
-                  <div className="mb-4">
-                    <RichTextEditor
-                      content={noteContent}
-                      onChange={setNoteContent}
-                      placeholder="Write your note here..."
-                    />
-                  </div>
-                  <div className="flex justify-end gap-2">
-                    <button
-                      onClick={handleQuickNoteSave}
-                      disabled={isSavingNote || !noteContent.trim()}
-                      className="px-4 py-2 text-sm rounded-md bg-[var(--foreground)] text-[var(--background)] hover:opacity-90 disabled:opacity-50"
-                    >
-                      {isSavingNote ? 'Saving...' : 'Save'}
-                    </button>
+              {/* Floating Note Modal */}
+              {isNoteModalOpen && (
+                <div className="absolute bottom-20 right-0 w-80 bg-[var(--background)] rounded-lg shadow-xl border border-[var(--border)] transform transition-all duration-300 animate-slide-up">
+                  <div className="p-4">
+                    <h3 className="text-lg font-semibold mb-4">Quick Note</h3>
+                    <div className="mb-4">
+                      <RichTextEditor
+                        content={quickNoteContent}
+                        onChange={setQuickNoteContent}
+                        placeholder="Write your note here..."
+                        isQuickNote={true}
+                      />
+                    </div>
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={handleQuickNoteSave}
+                        disabled={isSavingNote || !quickNoteContent.trim()}
+                        className="px-4 py-2 text-sm rounded-md bg-[var(--foreground)] text-[var(--background)] hover:opacity-90 disabled:opacity-50"
+                      >
+                        {isSavingNote ? 'Saving...' : 'Save'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
