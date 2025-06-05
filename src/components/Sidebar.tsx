@@ -11,6 +11,19 @@ export function Sidebar() {
   const router = useRouter();
   const { user, clearRedirectFlag } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Check if device is mobile
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768); // md breakpoint
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Store collapsed state in localStorage
   useEffect(() => {
@@ -27,8 +40,9 @@ export function Sidebar() {
     window.dispatchEvent(new Event('sidebar_state_changed'));
   }, [collapsed]);
 
-  if (!user) return null;
-  
+  // Don't render sidebar on mobile or if no user
+  if (!user || isMobile) return null;
+
   // Handle navigation without triggering auth redirects
   const handleNavigation = (e: MouseEvent<HTMLAnchorElement>, path: string) => {
     e.preventDefault();
@@ -62,7 +76,7 @@ export function Sidebar() {
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
       </div>
-      
+
       <nav className="p-2 space-y-2">
         <Link
           href="/dashboard"
